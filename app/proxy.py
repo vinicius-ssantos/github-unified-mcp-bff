@@ -18,7 +18,11 @@ class ToolCallRequest(BaseModel):
     arguments: dict = {}
 
 
-def _auth_headers(settings: Settings) -> dict[str, str]:
+async def _get_auth_headers(settings: Settings) -> dict[str, str]:
+    if settings.mcp_oauth_authorization_secret:
+        from app.mcp_oauth import get_mcp_token
+        token = await get_mcp_token(settings.mcp_url, settings.mcp_oauth_authorization_secret)
+        return {"Authorization": f"Bearer {token}"}
     if settings.mcp_token:
         return {"Authorization": f"Bearer {settings.mcp_token}"}
     return {}
@@ -49,27 +53,35 @@ async def _forward(
     payload: dict | None = None,
     timeout: float = 30.0,
 ) -> dict:
-    headers = {"Content-Type": "application/json", **_auth_headers(settings)}
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            if body is not None:
-                r = await client.post(f"{settings.mcp_url}/mcp", content=body, headers=headers)
-            else:
-                r = await client.post(f"{settings.mcp_url}/mcp", json=payload, headers=headers)
-            if r.status_code >= 400:
-                raise HTTPException(status_code=r.status_code, detail="MCP server returned error")
-            return r.json()
-        except HTTPException:
-            raise
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="MCP server timeout")
-        except httpx.RequestError:
-            raise HTTPException(status_code=502, detail="MCP server unreachable")
+    for attempt in range(2):
+        auth = await _get_auth_headers(settings)
+        headers = {"Content-Type": "application/json", **auth}
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                if body is not None:
+                    r = await client.post(f"{settings.mcp_url}/mcp", content=body, headers=headers)
+                else:
+                    r = await client.post(f"{settings.mcp_url}/mcp", json=payload, headers=headers)
+                if r.status_code == 401 and attempt == 0 and settings.mcp_oauth_authorization_secret:
+                    # Token may have been revoked — invalidate cache and retry once
+                    from app.mcp_oauth import invalidate
+                    invalidate()
+                    continue
+                if r.status_code >= 400:
+                    raise HTTPException(status_code=r.status_code, detail="MCP server returned error")
+                return r.json()
+            except HTTPException:
+                raise
+            except httpx.TimeoutException:
+                raise HTTPException(status_code=504, detail="MCP server timeout")
+            except httpx.RequestError:
+                raise HTTPException(status_code=502, detail="MCP server unreachable")
+    raise HTTPException(status_code=401, detail="MCP authentication failed")
 
 
 @router.get("/healthz")
 async def healthz_proxy(settings: Settings = Depends(get_settings)):
-    headers = _auth_headers(settings)
+    headers = await _get_auth_headers(settings)
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             r = await client.get(f"{settings.mcp_url}/healthz", headers=headers)

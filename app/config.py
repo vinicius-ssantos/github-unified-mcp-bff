@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # MCP server
     mcp_url: str
     mcp_token: str = ""
+    mcp_oauth_authorization_secret: str = ""
     allowed_origins: str = "http://localhost:5173"
     port: int = 8000
 
