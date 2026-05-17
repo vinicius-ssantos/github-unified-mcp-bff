@@ -17,8 +17,3 @@ app.add_middleware(
 )
 
 app.include_router(proxy_router)
-
-
-@app.get("/healthz")
-async def healthz():
-    return {"ok": True, "service": "github-unified-mcp-bff"}

@@ -7,19 +7,57 @@ import respx
 os.environ.setdefault("MCP_URL", "http://mock-mcp:8000")
 os.environ.setdefault("MCP_TOKEN", "test-token")
 
-from fastapi.testclient import TestClient  # noqa: E402 — env vars must be set first
+from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
 
 client = TestClient(app)
 
-MCP_ENDPOINT = "http://mock-mcp:8000/mcp"
+MCP_BASE = "http://mock-mcp:8000"
+MCP_ENDPOINT = f"{MCP_BASE}/mcp"
+MCP_HEALTHZ = f"{MCP_BASE}/healthz"
 
 
-def test_healthz():
+@respx.mock
+def test_healthz_proxies_mcp():
+    mcp_health = {
+        "ok": True, "service": "github-unified-mcp", "version": "1.31.1",
+        "tool_schema_version": "v1.31.1", "commit_sha": "abc123", "uptime_seconds": 1000,
+    }
+    respx.get(MCP_HEALTHZ).mock(return_value=httpx.Response(200, json=mcp_health))
+
     r = client.get("/healthz")
     assert r.status_code == 200
-    assert r.json()["ok"] is True
+    assert r.json()["version"] == "1.31.1"
+
+
+@respx.mock
+def test_healthz_mcp_down():
+    respx.get(MCP_HEALTHZ).mock(side_effect=httpx.ConnectError("refused"))
+
+    r = client.get("/healthz")
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+
+
+@respx.mock
+def test_mcp_passthrough_success():
+    mcp_response = {"jsonrpc": "2.0", "id": 99, "result": {"tools": [{"name": "server_info"}]}}
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json=mcp_response))
+
+    body = {"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}}
+    r = client.post("/mcp", json=body)
+    assert r.status_code == 200
+    assert r.json()["result"]["tools"][0]["name"] == "server_info"
+
+
+@respx.mock
+def test_mcp_passthrough_injects_auth():
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}}))
+
+    client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+
+    assert respx.calls.last.request.headers["authorization"] == "Bearer test-token"
 
 
 @respx.mock
