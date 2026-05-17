@@ -112,3 +112,70 @@ def test_call_tool_mcp_unreachable(client):
 def test_call_tool_missing_name(client):
     r = client.post("/api/mcp/call", json={"arguments": {}})
     assert r.status_code == 422
+
+
+# ── CSRF ─────────────────────────────────────────────────────────────────────
+
+@respx.mock
+def test_mcp_anonymous_no_csrf_required(client):
+    """Anonymous requests bypass CSRF check."""
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}}))
+    r = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    assert r.status_code == 200
+
+
+@respx.mock
+def test_mcp_authenticated_valid_csrf(client):
+    """Authenticated request with matching X-CSRF-Token passes."""
+    from datetime import datetime, timezone, timedelta
+    from jose import jwt
+    from app.config import get_settings
+
+    settings = get_settings()
+    exp = datetime.now(timezone.utc) + timedelta(seconds=3600)
+    csrf_val = "test-csrf-token-abc"
+    token = jwt.encode(
+        {"sub": "testuser", "name": "Test", "csrf": csrf_val, "exp": exp},
+        settings.jwt_secret, algorithm="HS256",
+    )
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}}))
+    r = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        cookies={"bff_session": token},
+        headers={"X-CSRF-Token": csrf_val},
+    )
+    assert r.status_code == 200
+
+
+@respx.mock
+def test_mcp_authenticated_wrong_csrf_rejected(client):
+    """Authenticated request with wrong X-CSRF-Token is rejected."""
+    from datetime import datetime, timezone, timedelta
+    from jose import jwt
+    from app.config import get_settings
+
+    settings = get_settings()
+    exp = datetime.now(timezone.utc) + timedelta(seconds=3600)
+    token = jwt.encode(
+        {"sub": "testuser", "name": "Test", "csrf": "correct-csrf", "exp": exp},
+        settings.jwt_secret, algorithm="HS256",
+    )
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json={}))
+    r = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        cookies={"bff_session": token},
+        headers={"X-CSRF-Token": "wrong-csrf"},
+    )
+    assert r.status_code == 403
+
+
+# ── Rate limit ────────────────────────────────────────────────────────────────
+
+def test_rate_limit_check_function():
+    from app.rate_limit import _SlidingWindow
+    w = _SlidingWindow()
+    for _ in range(5):
+        assert w.is_allowed("test-key", max_requests=5, window=60) is True
+    assert w.is_allowed("test-key", max_requests=5, window=60) is False

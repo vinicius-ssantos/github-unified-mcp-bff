@@ -13,3 +13,7 @@ os.environ.setdefault("GITHUB_CLIENT_ID", "")
 os.environ.setdefault("GITHUB_CLIENT_SECRET", "")
 os.environ.setdefault("RBAC_OPERATOR_USERS", "operator-user")
 os.environ.setdefault("RBAC_ADMIN_USERS", "admin-user")
+os.environ.setdefault("RBAC_OPERATOR_TEAMS", "myorg/ops")
+os.environ.setdefault("RBAC_ADMIN_TEAMS", "myorg/admins")
+# High limit so tests never hit it accidentally
+os.environ.setdefault("RATE_LIMIT_PER_USER_MAX", "1000")

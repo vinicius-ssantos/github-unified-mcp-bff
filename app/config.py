@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # RBAC — comma-separated GitHub usernames
     rbac_operator_users: str = ""
     rbac_admin_users: str = ""
+    # RBAC — comma-separated org/team slugs (e.g. "myorg/ops,myorg/admins")
+    rbac_operator_teams: str = ""
+    rbac_admin_teams: str = ""
+
+    # Rate limiting — per-user sliding window
+    rate_limit_per_user_max: int = 60
+    rate_limit_per_user_window: int = 60
 
     # Audit
     audit_db_path: str = "audit.db"

@@ -1,3 +1,4 @@
+import hmac
 import json
 import time
 
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 from app.audit import log_call
 from app.auth import get_current_user
 from app.config import Settings, get_settings
+from app.rate_limit import check_rate_limit
 from app.rbac import is_allowed, user_role
 
 router = APIRouter()
@@ -26,6 +28,22 @@ async def _get_auth_headers(settings: Settings) -> dict[str, str]:
     if settings.mcp_token:
         return {"Authorization": f"Bearer {settings.mcp_token}"}
     return {}
+
+
+def _check_csrf(request: Request, user_info: dict | None) -> None:
+    if not user_info:
+        return  # anonymous — no session to steal
+    csrf_in_session = user_info.get("csrf")
+    if not csrf_in_session:
+        return  # legacy token without csrf field — skip
+    csrf_header = request.headers.get("X-CSRF-Token", "")
+    if not hmac.compare_digest(csrf_header, csrf_in_session):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+
+
+def _check_user_rate_limit(key: str, settings: Settings) -> None:
+    if not check_rate_limit(key, max_requests=settings.rate_limit_per_user_max, window=settings.rate_limit_per_user_window):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded — too many requests")
 
 
 def _client_ip(request: Request) -> str:
@@ -98,8 +116,13 @@ async def mcp_passthrough(request: Request, settings: Settings = Depends(get_set
     tool_name, arguments = _extract_tool(body)
     user_info = get_current_user(request, settings)
     username = user_info["sub"] if user_info else "anonymous"
-    role = user_role(username, settings) if user_info else "viewer"
+    teams = user_info.get("teams", []) if user_info else []
+    role = user_role(username, settings, teams) if user_info else "viewer"
     ip = _client_ip(request)
+
+    _check_csrf(request, user_info)
+    _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
+
     start = time.monotonic()
     result_ok = True
     try:
@@ -119,8 +142,12 @@ async def mcp_passthrough(request: Request, settings: Settings = Depends(get_set
 async def call_tool(body: ToolCallRequest, request: Request, settings: Settings = Depends(get_settings)):
     user_info = get_current_user(request, settings)
     username = user_info["sub"] if user_info else "anonymous"
-    role = user_role(username, settings) if user_info else "viewer"
+    teams = user_info.get("teams", []) if user_info else []
+    role = user_role(username, settings, teams) if user_info else "viewer"
     ip = _client_ip(request)
+
+    _check_csrf(request, user_info)
+    _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
 
     # RBAC gate — only enforced when OAuth is configured
     if settings.github_client_id and not is_allowed(body.name, role):

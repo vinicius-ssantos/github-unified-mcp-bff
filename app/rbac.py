@@ -25,12 +25,15 @@ def tool_min_role(tool_name: str) -> str:
     return "viewer"
 
 
-def user_role(username: str, settings: Settings) -> str:
-    admins    = {u.strip() for u in settings.rbac_admin_users.split(",")    if u.strip()}
-    operators = {u.strip() for u in settings.rbac_operator_users.split(",") if u.strip()}
-    if username in admins:
+def user_role(username: str, settings: Settings, teams: list[str] | None = None) -> str:
+    admins         = {u.strip() for u in settings.rbac_admin_users.split(",")    if u.strip()}
+    operators      = {u.strip() for u in settings.rbac_operator_users.split(",") if u.strip()}
+    admin_teams    = {t.strip() for t in settings.rbac_admin_teams.split(",")    if t.strip()}
+    operator_teams = {t.strip() for t in settings.rbac_operator_teams.split(",") if t.strip()}
+    user_teams = set(teams or [])
+    if username in admins or bool(user_teams & admin_teams):
         return "admin"
-    if username in operators:
+    if username in operators or bool(user_teams & operator_teams):
         return "operator"
     return "viewer"
 

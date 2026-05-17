@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -7,13 +8,16 @@ from fastapi.responses import RedirectResponse
 from jose import jwt, JWTError
 
 from app.config import Settings, get_settings
+from app.rbac import user_role
 
 router = APIRouter(prefix="/auth")
 
 _GITHUB_AUTH_URL  = "https://github.com/login/oauth/authorize"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _GITHUB_USER_URL  = "https://api.github.com/user"
-COOKIE_NAME = "bff_session"
+_GITHUB_TEAMS_URL = "https://api.github.com/user/teams"
+COOKIE_NAME  = "bff_session"
+CSRF_COOKIE  = "csrf_token"
 
 
 def _create_jwt(payload: dict, settings: Settings) -> str:
@@ -35,6 +39,26 @@ def get_current_user(request: Request, settings: Settings = Depends(get_settings
     return _decode_jwt(token, settings)
 
 
+async def _fetch_github_teams(access_token: str) -> list[str]:
+    """Return list of 'org/team-slug' strings for the authenticated user."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(
+                _GITHUB_TEAMS_URL,
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            )
+            if r.status_code != 200:
+                return []
+            items = r.json()
+            return [
+                f"{t['organization']['login']}/{t['slug']}"
+                for t in items
+                if isinstance(t, dict) and "slug" in t and "organization" in t
+            ]
+    except Exception:
+        return []
+
+
 @router.get("/login")
 async def login(settings: Settings = Depends(get_settings)):
     if not settings.github_client_id:
@@ -43,7 +67,7 @@ async def login(settings: Settings = Depends(get_settings)):
         f"{_GITHUB_AUTH_URL}"
         f"?client_id={settings.github_client_id}"
         f"&redirect_uri={settings.github_callback_url}"
-        f"&scope=read:user"
+        f"&scope=read:user%20read:org"
     )
     return RedirectResponse(url)
 
@@ -73,19 +97,23 @@ async def callback(code: str, settings: Settings = Depends(get_settings)):
         )
         user_data = r.json()
 
+    teams = await _fetch_github_teams(access_token)
     login_name = user_data.get("login", "unknown")
+    csrf = secrets.token_urlsafe(32)
+
     session_token = _create_jwt(
-        {"sub": login_name, "name": user_data.get("name") or login_name},
+        {
+            "sub": login_name,
+            "name": user_data.get("name") or login_name,
+            "teams": teams,
+            "csrf": csrf,
+        },
         settings,
     )
     resp = RedirectResponse(url="/auth/me", status_code=302)
-    resp.set_cookie(
-        COOKIE_NAME,
-        session_token,
-        httponly=True,
-        samesite="lax",
-        max_age=settings.jwt_ttl_seconds,
-    )
+    resp.set_cookie(COOKIE_NAME, session_token, httponly=True, samesite="lax", max_age=settings.jwt_ttl_seconds)
+    # Non-httponly so the frontend can read and send as X-CSRF-Token header
+    resp.set_cookie(CSRF_COOKIE, csrf, httponly=False, samesite="lax", max_age=settings.jwt_ttl_seconds)
     return resp
 
 
@@ -94,10 +122,12 @@ async def me(request: Request, settings: Settings = Depends(get_settings)):
     payload = get_current_user(request, settings)
     if not payload:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"user": payload["sub"], "name": payload.get("name", payload["sub"])}
+    role = user_role(payload["sub"], settings, payload.get("teams", []))
+    return {"user": payload["sub"], "name": payload.get("name", payload["sub"]), "role": role}
 
 
 @router.post("/logout")
 async def logout(response: Response):
     response.delete_cookie(COOKIE_NAME, samesite="lax")
+    response.delete_cookie(CSRF_COOKIE, samesite="lax")
     return {"ok": True}
