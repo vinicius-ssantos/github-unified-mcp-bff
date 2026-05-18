@@ -21,6 +21,7 @@ Browser (sem token)
 | `GET` | `/healthz` | Proxeia o `/healthz` do MCP server (version, uptime, commit_sha) |
 | `POST` | `/mcp` | Passthrough raw JSON-RPC — adiciona `Authorization: Bearer` |
 | `POST` | `/api/mcp/call` | Chamada estruturada `{ name, arguments }` → JSON-RPC |
+| `GET` | `/api/capabilities` | Contrato estável para UI: sessão, role, auth mode, features e limites |
 
 ## Configuração
 
@@ -55,6 +56,51 @@ ruff check .
 ```
 
 O servidor sobe em `http://localhost:8000`.
+
+## Contrato de capacidades da UI
+
+O frontend deve consultar `GET /api/capabilities` para descobrir sessão, role, modo de autenticação e recursos habilitados sem inferir comportamento por tentativa/erro.
+
+Exemplo de payload:
+
+```json
+{
+  "service": "github-unified-mcp-bff",
+  "version": "0.2.0",
+  "environment": "production",
+  "authenticated": true,
+  "user": {
+    "login": "vinicius-ssantos",
+    "name": "Vinicius Santos",
+    "role": "admin"
+  },
+  "auth": {
+    "github_oauth_configured": true,
+    "csrf_required": true,
+    "cookie_session": true,
+    "frontend_url_configured": true,
+    "cookie_samesite": "none",
+    "cookie_secure": true
+  },
+  "mcp": {
+    "auth_mode": "static_bearer",
+    "raw_passthrough_enabled": true,
+    "structured_call_enabled": true
+  },
+  "features": {
+    "audit": true,
+    "audit_protected": false,
+    "controlled_operations": false,
+    "tool_policy": false
+  },
+  "limits": {
+    "rate_limit_per_user_max": 60,
+    "rate_limit_per_user_window": 60
+  }
+}
+```
+
+O payload nunca deve expor tokens, secrets, cookies ou headers sensíveis.
 
 ## Stack local completo
 
