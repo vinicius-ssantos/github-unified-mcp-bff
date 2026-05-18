@@ -116,8 +116,6 @@ async def mcp_passthrough(request: Request, settings: Settings = Depends(get_set
     tool_name, arguments = _extract_tool(body)
     user_info = get_current_user(request, settings)
     username = user_info["sub"] if user_info else "anonymous"
-    teams = user_info.get("teams", []) if user_info else []
-    role = user_role(username, settings, teams) if user_info else "viewer"
     ip = _client_ip(request)
 
     _check_csrf(request, user_info)
