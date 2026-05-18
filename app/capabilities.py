@@ -53,7 +53,8 @@ async def capabilities(request: Request, settings: Settings = Depends(get_settin
             "audit": True,
             "audit_protected": False,
             "controlled_operations": False,
-            "tool_policy": False,
+            "tool_policy": True,
+            "unknown_tools_blocked": settings.block_unknown_tools,
         },
         "limits": {
             "rate_limit_per_user_max": settings.rate_limit_per_user_max,
