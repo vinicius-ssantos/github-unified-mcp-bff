@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     port: int = 8000
 
+    # Frontend / browser session
+    frontend_url: str = "http://localhost:5173"
+    cookie_secure: bool = False
+    cookie_samesite: str = "lax"
+    cookie_domain: str = ""
+
     # GitHub OAuth (Camada 2)
     github_client_id: str = ""
     github_client_secret: str = ""
@@ -44,6 +50,7 @@ class Settings(BaseSettings):
 
 _PRIVATE_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _PRIVATE_HOST_PREFIXES = ("10.", "192.168.", "169.254.")
+_ALLOWED_SAMESITE_VALUES = {"lax", "none", "strict"}
 
 
 def is_production(settings: Settings) -> bool:
@@ -63,8 +70,18 @@ def _is_private_mcp_host(mcp_url: str) -> bool:
     return host.startswith(("fc00:", "fe80:"))
 
 
+def _is_http_url(value: str) -> bool:
+    return urlparse(value).scheme in {"http", "https"}
+
+
 def validate_production_settings(settings: Settings) -> None:
     """Fail fast when production configuration is unsafe."""
+    cookie_samesite = settings.cookie_samesite.lower()
+    if cookie_samesite not in _ALLOWED_SAMESITE_VALUES:
+        raise RuntimeError("COOKIE_SAMESITE must be one of: lax, none, strict")
+    if cookie_samesite == "none" and not settings.cookie_secure:
+        raise RuntimeError("COOKIE_SECURE must be true when COOKIE_SAMESITE=none")
+
     if not is_production(settings):
         return
 
@@ -83,6 +100,12 @@ def validate_production_settings(settings: Settings) -> None:
         errors.append("MCP_URL must use https:// in production")
     if _is_private_mcp_host(settings.mcp_url):
         errors.append("MCP_URL must not point to localhost or a private network address in production")
+    if not _is_http_url(settings.frontend_url):
+        errors.append("FRONTEND_URL must be an http(s) URL in production")
+    if not settings.frontend_url.startswith("https://"):
+        errors.append("FRONTEND_URL must use https:// in production")
+    if not settings.cookie_secure:
+        errors.append("COOKIE_SECURE must be true in production")
 
     if errors:
         raise RuntimeError("Unsafe production configuration: " + "; ".join(errors))
