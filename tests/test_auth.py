@@ -122,6 +122,8 @@ def test_callback_supports_cross_origin_secure_none_cookies():
 
 
 def test_logout_uses_configured_cookie_attributes():
+    from fastapi import Response
+
     from app.auth import logout
     from app.config import Settings
 
@@ -131,11 +133,13 @@ def test_logout_uses_configured_cookie_attributes():
         cookie_samesite="none",
         cookie_domain=".example.com",
     )
+    response = Response()
 
     import anyio
-    resp = anyio.run(logout, settings=settings)
+    result = anyio.run(logout, response, settings)
 
-    set_cookie = ", ".join(resp.headers.get_list("set-cookie"))
+    set_cookie = ", ".join(response.headers.getlist("set-cookie"))
+    assert result == {"ok": True}
     assert "bff_session=" in set_cookie
     assert "csrf_token=" in set_cookie
     assert "Max-Age=0" in set_cookie
