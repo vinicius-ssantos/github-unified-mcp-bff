@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     rate_limit_per_user_max: int = 60
     rate_limit_per_user_window: int = 60
 
+    # Tool policy
+    block_unknown_tools: bool = True
+
     # Audit
     audit_db_path: str = "audit.db"
     audit_retention_days: int = 90
