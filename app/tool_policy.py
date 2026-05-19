@@ -7,6 +7,7 @@ RiskLevel = Literal["low", "medium", "high", "unknown"]
 Role = Literal["viewer", "operator", "admin"]
 
 # This module is the BFF source of truth for tool risk and minimum roles.
+# Unknown tools are blocked by default to avoid policy drift.
 _ROLE_RANK: dict[str, int] = {"viewer": 0, "operator": 1, "admin": 2}
 
 _LOW_RISK_TOOLS = {
