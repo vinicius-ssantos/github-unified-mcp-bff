@@ -1,23 +1,23 @@
 import secrets
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 
 from app.config import Settings, get_settings
 from app.rbac import user_role
 
 router = APIRouter(prefix="/auth")
 
-_GITHUB_AUTH_URL  = "https://github.com/login/oauth/authorize"
+_GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
 _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-_GITHUB_USER_URL  = "https://api.github.com/user"
+_GITHUB_USER_URL = "https://api.github.com/user"
 _GITHUB_TEAMS_URL = "https://api.github.com/user/teams"
-COOKIE_NAME  = "bff_session"
-CSRF_COOKIE  = "csrf_token"
+COOKIE_NAME = "bff_session"
+CSRF_COOKIE = "csrf_token"
 
 
 def _create_jwt(payload: dict, settings: Settings) -> str:
@@ -30,6 +30,42 @@ def _decode_jwt(token: str, settings: Settings) -> Optional[dict]:
         return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     except JWTError:
         return None
+
+
+def _cookie_options(settings: Settings) -> dict:
+    options: dict = {
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite.lower(),
+        "path": "/",
+    }
+    if settings.cookie_domain:
+        options["domain"] = settings.cookie_domain
+    return options
+
+
+def _set_session_cookies(response: Response, session_token: str, csrf: str, settings: Settings) -> None:
+    options = _cookie_options(settings)
+    response.set_cookie(
+        COOKIE_NAME,
+        session_token,
+        httponly=True,
+        max_age=settings.jwt_ttl_seconds,
+        **options,
+    )
+    # Non-httponly so the frontend can read and send as X-CSRF-Token header.
+    response.set_cookie(
+        CSRF_COOKIE,
+        csrf,
+        httponly=False,
+        max_age=settings.jwt_ttl_seconds,
+        **options,
+    )
+
+
+def _delete_session_cookies(response: Response, settings: Settings) -> None:
+    options = _cookie_options(settings)
+    response.delete_cookie(COOKIE_NAME, **options)
+    response.delete_cookie(CSRF_COOKIE, **options)
 
 
 def get_current_user(request: Request, settings: Settings = Depends(get_settings)) -> Optional[dict]:
@@ -110,10 +146,8 @@ async def callback(code: str, settings: Settings = Depends(get_settings)):
         },
         settings,
     )
-    resp = RedirectResponse(url="/auth/me", status_code=302)
-    resp.set_cookie(COOKIE_NAME, session_token, httponly=True, samesite="lax", max_age=settings.jwt_ttl_seconds)
-    # Non-httponly so the frontend can read and send as X-CSRF-Token header
-    resp.set_cookie(CSRF_COOKIE, csrf, httponly=False, samesite="lax", max_age=settings.jwt_ttl_seconds)
+    resp = RedirectResponse(url=settings.frontend_url, status_code=302)
+    _set_session_cookies(resp, session_token, csrf, settings)
     return resp
 
 
@@ -127,7 +161,6 @@ async def me(request: Request, settings: Settings = Depends(get_settings)):
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie(COOKIE_NAME, samesite="lax")
-    response.delete_cookie(CSRF_COOKIE, samesite="lax")
+async def logout(response: Response, settings: Settings = Depends(get_settings)):
+    _delete_session_cookies(response, settings)
     return {"ok": True}

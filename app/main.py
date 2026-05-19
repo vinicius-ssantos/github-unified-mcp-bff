@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.audit import cleanup_old_events, init_db, router as audit_router
 from app.auth import router as auth_router
+from app.capabilities import router as capabilities_router
 from app.config import get_settings
 from app.middleware import SecurityHeadersMiddleware
 from app.proxy import router as proxy_router
@@ -58,3 +59,4 @@ app.add_middleware(
 app.include_router(proxy_router)
 app.include_router(auth_router)
 app.include_router(audit_router)
+app.include_router(capabilities_router)
