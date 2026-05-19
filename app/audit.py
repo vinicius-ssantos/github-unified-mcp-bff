@@ -3,13 +3,16 @@ import json
 from datetime import datetime, timezone, timedelta
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app.auth import get_current_user
 from app.config import Settings, get_settings
+from app.rbac import user_role
 
 router = APIRouter()
 
 SCHEMA_VERSION = 1
+_AUDIT_READER_ROLES = {"operator", "admin"}
 
 
 async def init_db(db_path: str) -> None:
@@ -41,6 +44,16 @@ async def init_db(db_path: str) -> None:
             ("schema_version", str(SCHEMA_VERSION)),
         )
         await db.commit()
+
+
+def _require_audit_reader(request: Request, settings: Settings) -> dict:
+    payload = get_current_user(request, settings)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    role = user_role(payload["sub"], settings, payload.get("teams", []))
+    if role not in _AUDIT_READER_ROLES:
+        raise HTTPException(status_code=403, detail="Audit access requires operator or admin role")
+    return {"user": payload["sub"], "role": role}
 
 
 async def log_call(
@@ -106,18 +119,21 @@ async def audit_health(settings: Settings) -> dict:
 
 
 @router.get("/api/audit/health")
-async def get_audit_health(settings: Settings = Depends(get_settings)):
+async def get_audit_health(request: Request, settings: Settings = Depends(get_settings)):
+    _require_audit_reader(request, settings)
     return await audit_health(settings)
 
 
 @router.get("/api/audit")
 async def get_audit(
+    request: Request,
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     tool: str = Query(""),
     user: str = Query(""),
     settings: Settings = Depends(get_settings),
 ):
+    _require_audit_reader(request, settings)
     clauses: list[str] = []
     params: list = []
     if tool:
