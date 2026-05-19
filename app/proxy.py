@@ -10,7 +10,8 @@ from app.audit import log_call
 from app.auth import get_current_user
 from app.config import Settings, get_settings
 from app.rate_limit import check_rate_limit
-from app.rbac import is_allowed, user_role
+from app.rbac import user_role
+from app.tool_policy import is_allowed, tool_min_role, tool_policy
 
 router = APIRouter()
 
@@ -53,16 +54,30 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _extract_tool(body: bytes) -> tuple[str, dict]:
+def _extract_tool(body: bytes) -> tuple[str, dict, bool]:
     try:
         parsed = json.loads(body)
         method = parsed.get("method", "")
         if method == "tools/call":
             params = parsed.get("params", {})
-            return params.get("name", "unknown"), params.get("arguments", {})
-        return method or "unknown", {}
+            return params.get("name", "unknown"), params.get("arguments", {}), True
+        return method or "unknown", {}, False
     except Exception:
-        return "unknown", {}
+        return "unknown", {}, False
+
+
+def _enforce_tool_policy(tool_name: str, role: str, settings: Settings) -> None:
+    policy = tool_policy(tool_name)
+    if not is_allowed(tool_name, role, settings):
+        if not policy.known:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Tool '{tool_name}' is not known to BFF policy and is blocked",
+            )
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{role}' cannot call '{tool_name}' — requires '{tool_min_role(tool_name)}'",
+        )
 
 
 async def _forward(
@@ -113,13 +128,17 @@ async def healthz_proxy(settings: Settings = Depends(get_settings)):
 @router.post("/mcp")
 async def mcp_passthrough(request: Request, settings: Settings = Depends(get_settings)):
     body = await request.body()
-    tool_name, arguments = _extract_tool(body)
+    tool_name, arguments, is_tool_call = _extract_tool(body)
     user_info = get_current_user(request, settings)
     username = user_info["sub"] if user_info else "anonymous"
+    teams = user_info.get("teams", []) if user_info else []
+    role = user_role(username, settings, teams) if user_info else "viewer"
     ip = _client_ip(request)
 
     _check_csrf(request, user_info)
     _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
+    if is_tool_call:
+        _enforce_tool_policy(tool_name, role, settings)
 
     start = time.monotonic()
     result_ok = True
@@ -146,13 +165,7 @@ async def call_tool(body: ToolCallRequest, request: Request, settings: Settings 
 
     _check_csrf(request, user_info)
     _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
-
-    # RBAC gate — only enforced when OAuth is configured
-    if settings.github_client_id and not is_allowed(body.name, role):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{role}' cannot call '{body.name}' — requires '{__import__('app.rbac', fromlist=['tool_min_role']).tool_min_role(body.name)}'",
-        )
+    _enforce_tool_policy(body.name, role, settings)
 
     payload = {
         "jsonrpc": "2.0",
