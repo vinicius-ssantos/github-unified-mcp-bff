@@ -188,9 +188,34 @@ Em `BFF_ENV=production`, o BFF falha no startup se a configuração estiver inse
 
 ## Audit log
 
-O audit atual usa SQLite via `AUDIT_DB_PATH`, com retenção controlada por `AUDIT_RETENTION_DAYS`. O BFF não persiste argumentos brutos, apenas hash dos argumentos.
+O audit atual usa SQLite via `AUDIT_BACKEND=sqlite`, com caminho em `AUDIT_DB_PATH` e retenção controlada por `AUDIT_RETENTION_DAYS`. O BFF não persiste argumentos brutos, apenas hash dos argumentos.
 
-Para produção, use disco persistente no Render ou evolua para backend persistente dedicado conforme a issue #10.
+O endpoint `GET /api/audit/health` retorna diagnóstico seguro do storage de audit:
+
+```json
+{
+  "ok": true,
+  "backend": "sqlite",
+  "sqlite_persistence": "persistent",
+  "path": "/var/data/audit.db",
+  "schema_version": "1",
+  "events_total": 42,
+  "retention_days": 90
+}
+```
+
+Para desenvolvimento local, `AUDIT_SQLITE_PERSISTENCE=ephemeral` e `AUDIT_DB_PATH=audit.db` são suficientes. Em produção, use disco persistente no Render e configure:
+
+```bash
+AUDIT_BACKEND=sqlite
+AUDIT_SQLITE_PERSISTENCE=persistent
+AUDIT_DB_PATH=/var/data/audit.db
+AUDIT_RETENTION_DAYS=90
+```
+
+Em `BFF_ENV=production`, o BFF falha no startup se `AUDIT_SQLITE_PERSISTENCE` não for `persistent`, se o caminho apontar para storage efêmero conhecido como `audit.db`, `:memory:` ou `/tmp/...`, ou se `AUDIT_DB_PATH` não for absoluto.
+
+Postgres ainda não foi implementado; `AUDIT_BACKEND=sqlite` é o único backend aceito neste momento.
 
 ## Roadmap
 
