@@ -10,6 +10,9 @@ def _prod_settings(**overrides):
         "mcp_token": "test-token",
         "allowed_origins": "https://frontend.example.com",
         "jwt_secret": "super-secret-value",
+        "frontend_url": "https://frontend.example.com",
+        "cookie_secure": True,
+        "cookie_samesite": "none",
     }
     base.update(overrides)
     return Settings(**base)
@@ -37,6 +40,9 @@ def test_production_accepts_safe_config():
         ("mcp_url", "https://10.0.0.5", "private network"),
         ("mcp_url", "https://172.16.0.5", "private network"),
         ("mcp_url", "https://192.168.0.5", "private network"),
+        ("frontend_url", "http://frontend.example.com", "FRONTEND_URL must use https"),
+        ("frontend_url", "not-a-url", "FRONTEND_URL must be an http"),
+        ("cookie_secure", False, "COOKIE_SECURE must be true"),
     ],
 )
 def test_production_rejects_unsafe_values(field, value, message):
@@ -54,3 +60,15 @@ def test_production_requires_mcp_auth():
 def test_production_accepts_mcp_oauth_secret_without_static_token():
     settings = _prod_settings(mcp_token="", mcp_oauth_authorization_secret="approval-secret")
     validate_production_settings(settings)
+
+
+def test_cookie_samesite_none_requires_secure_even_in_development():
+    settings = Settings(mcp_url="http://localhost:8001", cookie_samesite="none", cookie_secure=False)
+    with pytest.raises(RuntimeError, match="COOKIE_SECURE must be true"):
+        validate_production_settings(settings)
+
+
+def test_invalid_cookie_samesite_is_rejected():
+    settings = Settings(mcp_url="http://localhost:8001", cookie_samesite="invalid")
+    with pytest.raises(RuntimeError, match="COOKIE_SAMESITE"):
+        validate_production_settings(settings)
