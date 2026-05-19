@@ -46,7 +46,8 @@ async def capabilities(request: Request, settings: Settings = Depends(get_settin
         },
         "mcp": {
             "auth_mode": _mcp_auth_mode(settings),
-            "raw_passthrough_enabled": True,
+            "raw_passthrough_enabled": settings.allow_raw_mcp_passthrough,
+            "raw_tool_execution_enabled": settings.allow_raw_mcp_tools_call,
             "structured_call_enabled": True,
         },
         "features": {
