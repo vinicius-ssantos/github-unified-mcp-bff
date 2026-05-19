@@ -32,6 +32,7 @@ cp .env.example .env
 
 | Variável | Descrição | Exemplo |
 |----------|-----------|---------|
+| `BFF_ENV` | Ambiente do BFF (`development`, `staging`, `production`) | `development` |
 | `MCP_URL` | URL do servidor MCP | `https://github-unified-mcp.onrender.com` |
 | `MCP_TOKEN` | Bearer token do MCP | `3nFF8s25h2W1...` |
 | `ALLOWED_ORIGINS` | Origins CORS permitidas (vírgula) | `http://localhost:5173` |
@@ -48,6 +49,9 @@ python main.py
 
 # Rodar testes
 pytest -q
+
+# Rodar lint
+ruff check .
 ```
 
 O servidor sobe em `http://localhost:8000`.
@@ -71,9 +75,13 @@ O frontend em `http://localhost:5173` já aponta para `http://localhost:8000` po
 
 O `Dockerfile` está pronto. Configure as variáveis de ambiente no painel do Render:
 
-- `MCP_URL`
-- `MCP_TOKEN`
-- `ALLOWED_ORIGINS` — inclua o domínio do frontend em produção (ex: `https://seu-app.vercel.app`)
+- `BFF_ENV=production`
+- `MCP_URL` — deve usar `https://` e não apontar para localhost/rede privada
+- `MCP_TOKEN` ou `MCP_OAUTH_AUTHORIZATION_SECRET`
+- `JWT_SECRET` — valor forte, diferente de `change-me-in-production`
+- `ALLOWED_ORIGINS` — inclua o domínio do frontend em produção (ex: `https://seu-app.vercel.app`) e não use `*`
+
+Em `BFF_ENV=production`, o BFF falha no startup se a configuração estiver insegura.
 
 ## Roadmap
 
