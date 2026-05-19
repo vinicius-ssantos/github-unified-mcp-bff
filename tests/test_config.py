@@ -13,6 +13,9 @@ def _prod_settings(**overrides):
         "frontend_url": "https://frontend.example.com",
         "cookie_secure": True,
         "cookie_samesite": "none",
+        "audit_backend": "sqlite",
+        "audit_sqlite_persistence": "persistent",
+        "audit_db_path": "/var/data/audit.db",
     }
     base.update(overrides)
     return Settings(**base)
@@ -43,6 +46,11 @@ def test_production_accepts_safe_config():
         ("frontend_url", "http://frontend.example.com", "FRONTEND_URL must use https"),
         ("frontend_url", "not-a-url", "FRONTEND_URL must be an http"),
         ("cookie_secure", False, "COOKIE_SECURE must be true"),
+        ("audit_sqlite_persistence", "ephemeral", "AUDIT_SQLITE_PERSISTENCE"),
+        ("audit_db_path", "audit.db", "persistent storage"),
+        ("audit_db_path", ":memory:", "persistent storage"),
+        ("audit_db_path", "/tmp/audit.db", "persistent storage"),
+        ("audit_db_path", "relative/audit.db", "absolute persistent path"),
     ],
 )
 def test_production_rejects_unsafe_values(field, value, message):
@@ -71,4 +79,16 @@ def test_cookie_samesite_none_requires_secure_even_in_development():
 def test_invalid_cookie_samesite_is_rejected():
     settings = Settings(mcp_url="http://localhost:8001", cookie_samesite="invalid")
     with pytest.raises(RuntimeError, match="COOKIE_SAMESITE"):
+        validate_production_settings(settings)
+
+
+def test_invalid_audit_backend_is_rejected():
+    settings = Settings(mcp_url="http://localhost:8001", audit_backend="postgres")
+    with pytest.raises(RuntimeError, match="AUDIT_BACKEND"):
+        validate_production_settings(settings)
+
+
+def test_invalid_audit_sqlite_persistence_is_rejected():
+    settings = Settings(mcp_url="http://localhost:8001", audit_sqlite_persistence="unknown")
+    with pytest.raises(RuntimeError, match="AUDIT_SQLITE_PERSISTENCE"):
         validate_production_settings(settings)

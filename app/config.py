@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,6 +48,8 @@ class Settings(BaseSettings):
     block_unknown_tools: bool = True
 
     # Audit
+    audit_backend: str = "sqlite"
+    audit_sqlite_persistence: str = "ephemeral"
     audit_db_path: str = "audit.db"
     audit_retention_days: int = 90
 
@@ -54,6 +57,10 @@ class Settings(BaseSettings):
 _PRIVATE_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _PRIVATE_HOST_PREFIXES = ("10.", "192.168.", "169.254.")
 _ALLOWED_SAMESITE_VALUES = {"lax", "none", "strict"}
+_ALLOWED_AUDIT_BACKENDS = {"sqlite"}
+_ALLOWED_AUDIT_SQLITE_PERSISTENCE = {"ephemeral", "persistent"}
+_EPHEMERAL_AUDIT_PATHS = {"audit.db", ":memory:"}
+_EPHEMERAL_AUDIT_PREFIXES = ("/tmp/", "/var/tmp/")
 
 
 def is_production(settings: Settings) -> bool:
@@ -84,6 +91,10 @@ def validate_production_settings(settings: Settings) -> None:
         raise RuntimeError("COOKIE_SAMESITE must be one of: lax, none, strict")
     if cookie_samesite == "none" and not settings.cookie_secure:
         raise RuntimeError("COOKIE_SECURE must be true when COOKIE_SAMESITE=none")
+    if settings.audit_backend not in _ALLOWED_AUDIT_BACKENDS:
+        raise RuntimeError("AUDIT_BACKEND must be one of: sqlite")
+    if settings.audit_sqlite_persistence not in _ALLOWED_AUDIT_SQLITE_PERSISTENCE:
+        raise RuntimeError("AUDIT_SQLITE_PERSISTENCE must be one of: ephemeral, persistent")
 
     if not is_production(settings):
         return
@@ -109,6 +120,15 @@ def validate_production_settings(settings: Settings) -> None:
         errors.append("FRONTEND_URL must use https:// in production")
     if not settings.cookie_secure:
         errors.append("COOKIE_SECURE must be true in production")
+    if settings.audit_backend == "sqlite" and settings.audit_sqlite_persistence != "persistent":
+        errors.append("AUDIT_SQLITE_PERSISTENCE must be persistent in production")
+    audit_path = settings.audit_db_path.strip()
+    audit_path_obj = Path(audit_path)
+    if settings.audit_backend == "sqlite" and settings.audit_sqlite_persistence == "persistent":
+        if audit_path in _EPHEMERAL_AUDIT_PATHS or audit_path.startswith(_EPHEMERAL_AUDIT_PREFIXES):
+            errors.append("AUDIT_DB_PATH must point to persistent storage in production")
+        if not audit_path_obj.is_absolute():
+            errors.append("AUDIT_DB_PATH should be an absolute persistent path in production")
 
     if errors:
         raise RuntimeError("Unsafe production configuration: " + "; ".join(errors))
