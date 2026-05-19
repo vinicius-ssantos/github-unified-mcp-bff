@@ -6,6 +6,7 @@ from app.config import Settings
 RiskLevel = Literal["low", "medium", "high", "unknown"]
 Role = Literal["viewer", "operator", "admin"]
 
+# This module is the BFF source of truth for tool risk and minimum roles.
 _ROLE_RANK: dict[str, int] = {"viewer": 0, "operator": 1, "admin": 2}
 
 _LOW_RISK_TOOLS = {
