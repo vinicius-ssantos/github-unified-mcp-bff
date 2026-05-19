@@ -126,7 +126,7 @@ Exemplo de payload:
   },
   "features": {
     "audit": true,
-    "audit_protected": false,
+    "audit_protected": true,
     "controlled_operations": false,
     "tool_policy": true,
     "unknown_tools_blocked": true
@@ -189,6 +189,13 @@ Em `BFF_ENV=production`, o BFF falha no startup se a configuração estiver inse
 ## Audit log
 
 O audit atual usa SQLite via `AUDIT_BACKEND=sqlite`, com caminho em `AUDIT_DB_PATH` e retenção controlada por `AUDIT_RETENTION_DAYS`. O BFF não persiste argumentos brutos, apenas hash dos argumentos.
+
+A leitura de audit é protegida por sessão e RBAC:
+
+- `GET /api/audit` sem sessão retorna `401`.
+- Usuário autenticado com role `viewer` recebe `403`.
+- Roles `operator` e `admin` podem consultar eventos de audit.
+- `GET /api/audit/health` usa a mesma política, porque expõe metadados operacionais do storage.
 
 O endpoint `GET /api/audit/health` retorna diagnóstico seguro do storage de audit:
 
