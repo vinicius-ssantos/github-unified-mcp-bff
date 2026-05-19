@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta, timezone
+
 import aiosqlite
 import pytest
 from fastapi.testclient import TestClient
+from jose import jwt
 
 from app.audit import SCHEMA_VERSION, init_db
 
@@ -13,38 +16,92 @@ def client():
         yield c
 
 
-def test_audit_returns_empty_initially(client):
+def _session_token(settings, sub="testuser", name="Test User", teams=None):
+    exp = datetime.now(timezone.utc) + timedelta(seconds=3600)
+    return jwt.encode(
+        {
+            "sub": sub,
+            "name": name,
+            "teams": teams or [],
+            "csrf": "csrf-token",
+            "exp": exp,
+        },
+        settings.jwt_secret,
+        algorithm="HS256",
+    )
+
+
+def _set_session(client, settings, sub="testuser", teams=None):
+    client.cookies.set("bff_session", _session_token(settings, sub=sub, teams=teams))
+
+
+def test_audit_requires_authentication(client):
+    client.cookies.clear()
     r = client.get("/api/audit")
+    assert r.status_code == 401
+
+
+def test_audit_health_requires_authentication(client):
+    client.cookies.clear()
+    r = client.get("/api/audit/health")
+    assert r.status_code == 401
+
+
+def test_audit_rejects_viewer(client):
+    from app.config import get_settings
+
+    settings = get_settings()
+    client.cookies.clear()
+    _set_session(client, settings, sub="viewer-user")
+
+    r = client.get("/api/audit")
+
+    assert r.status_code == 403
+    assert "operator or admin" in r.json()["detail"]
+    client.cookies.clear()
+
+
+def test_audit_allows_operator(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-audit-user")
+    client.cookies.clear()
+    _set_session(client, settings, sub="operator-audit-user")
+
+    r = client.get("/api/audit")
+
     assert r.status_code == 200
     data = r.json()
     assert "events" in data
     assert "total" in data
+    client.cookies.clear()
 
 
-def test_audit_pagination_params(client):
-    r = client.get("/api/audit?limit=10&offset=0")
+def test_audit_allows_admin(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_admin_users", "admin-audit-user")
+    client.cookies.clear()
+    _set_session(client, settings, sub="admin-audit-user")
+
+    r = client.get("/api/audit")
+
     assert r.status_code == 200
+    client.cookies.clear()
 
 
-def test_audit_filter_by_tool(client):
-    r = client.get("/api/audit?tool=server_info")
-    assert r.status_code == 200
-    for event in r.json()["events"]:
-        assert "server_info" in event["tool"]
+def test_audit_health_allows_operator(client, monkeypatch):
+    from app.config import get_settings
 
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-health-user")
+    client.cookies.clear()
+    _set_session(client, settings, sub="operator-health-user")
 
-def test_audit_filter_by_user(client):
-    r = client.get("/api/audit?user=anonymous")
-    assert r.status_code == 200
-
-
-def test_audit_limit_max(client):
-    r = client.get("/api/audit?limit=201")
-    assert r.status_code == 422
-
-
-def test_audit_health_endpoint(client):
     r = client.get("/api/audit/health")
+
     assert r.status_code == 200
     data = r.json()
     assert data["ok"] is True
@@ -52,6 +109,57 @@ def test_audit_health_endpoint(client):
     assert data["schema_version"] == str(SCHEMA_VERSION)
     assert "events_total" in data
     assert "retention_days" in data
+    client.cookies.clear()
+
+
+def test_audit_pagination_params_authorized(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-pagination-user")
+    client.cookies.clear()
+    _set_session(client, settings, sub="operator-pagination-user")
+
+    r = client.get("/api/audit?limit=10&offset=0")
+
+    assert r.status_code == 200
+    client.cookies.clear()
+
+
+def test_audit_filter_by_tool_authorized(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-tool-user")
+    client.cookies.clear()
+    _set_session(client, settings, sub="operator-tool-user")
+
+    r = client.get("/api/audit?tool=server_info")
+
+    assert r.status_code == 200
+    for event in r.json()["events"]:
+        assert "server_info" in event["tool"]
+    client.cookies.clear()
+
+
+def test_audit_filter_by_user_authorized(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-user-filter")
+    client.cookies.clear()
+    _set_session(client, settings, sub="operator-user-filter")
+
+    r = client.get("/api/audit?user=anonymous")
+
+    assert r.status_code == 200
+    client.cookies.clear()
+
+
+def test_audit_limit_max_still_applies_before_auth(client):
+    client.cookies.clear()
+    r = client.get("/api/audit?limit=201")
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio

@@ -51,7 +51,7 @@ async def capabilities(request: Request, settings: Settings = Depends(get_settin
         },
         "features": {
             "audit": True,
-            "audit_protected": False,
+            "audit_protected": True,
             "controlled_operations": False,
             "tool_policy": True,
             "unknown_tools_blocked": settings.block_unknown_tools,
