@@ -46,6 +46,8 @@ class Settings(BaseSettings):
 
     # Tool policy
     block_unknown_tools: bool = True
+    allow_raw_mcp_passthrough: bool = True
+    allow_raw_mcp_tools_call: bool = True
 
     # Audit
     audit_backend: str = "sqlite"
@@ -122,6 +124,10 @@ def validate_production_settings(settings: Settings) -> None:
         errors.append("COOKIE_SECURE must be true in production")
     if settings.audit_backend == "sqlite" and settings.audit_sqlite_persistence != "persistent":
         errors.append("AUDIT_SQLITE_PERSISTENCE must be persistent in production")
+    if settings.allow_raw_mcp_passthrough:
+        errors.append("ALLOW_RAW_MCP_PASSTHROUGH must be false in production")
+    if settings.allow_raw_mcp_tools_call:
+        errors.append("ALLOW_RAW_MCP_TOOLS_CALL must be false in production")
     audit_path = settings.audit_db_path.strip()
     audit_path_obj = Path(audit_path)
     if settings.audit_backend == "sqlite" and settings.audit_sqlite_persistence == "persistent":
