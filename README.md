@@ -76,12 +76,31 @@ O frontend em `http://localhost:5173` já aponta para `http://localhost:8000` po
 O `Dockerfile` está pronto. Configure as variáveis de ambiente no painel do Render:
 
 - `BFF_ENV=production`
+- `FRONTEND_URL` — URL pública do frontend para retorno pós-login (ex: `https://seu-app.vercel.app`)
+- `COOKIE_SECURE=true`
+- `COOKIE_SAMESITE=none` para frontend e BFF em domínios diferentes (ex: Vercel → Render)
+- `COOKIE_DOMAIN` — opcional; deixe vazio salvo se houver domínio compartilhado controlado
 - `MCP_URL` — deve usar `https://` e não apontar para localhost/rede privada
 - `MCP_TOKEN` ou `MCP_OAUTH_AUTHORIZATION_SECRET`
 - `JWT_SECRET` — valor forte, diferente de `change-me-in-production`
 - `ALLOWED_ORIGINS` — inclua o domínio do frontend em produção (ex: `https://seu-app.vercel.app`) e não use `*`
 
 Em `BFF_ENV=production`, o BFF falha no startup se a configuração estiver insegura.
+
+### Frontend Vercel → BFF Render
+
+Para frontend e BFF em origens diferentes, use cookies cross-site seguros:
+
+```bash
+BFF_ENV=production
+FRONTEND_URL=https://seu-app.vercel.app
+ALLOWED_ORIGINS=https://seu-app.vercel.app
+COOKIE_SECURE=true
+COOKIE_SAMESITE=none
+```
+
+O callback OAuth do GitHub redireciona para `FRONTEND_URL` depois de criar os cookies de sessão.
+O cookie `bff_session` é `HttpOnly`; o cookie `csrf_token` fica legível pelo frontend para envio em `X-CSRF-Token`.
 
 ## Roadmap
 
