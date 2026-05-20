@@ -141,6 +141,36 @@ Exemplo de payload:
 
 O payload não deve expor tokens, secrets, cookies ou headers sensíveis.
 
+## Contrato de erro para o frontend
+
+`POST /api/mcp/call` preserva o campo legado `detail` e também retorna um envelope estável em `error` quando uma chamada falha:
+
+```json
+{
+  "detail": "MCP server timeout",
+  "error": {
+    "code": "mcp_timeout",
+    "message": "MCP server timeout",
+    "details": {
+      "status_code": 504
+    }
+  }
+}
+```
+
+Códigos esperados para UI:
+
+| HTTP | `error.code` | Uso recomendado |
+|------|--------------|-----------------|
+| `401` | `unauthorized` | Pedir login novamente |
+| `403` | `forbidden` | Mostrar falta de permissão ou CSRF inválido |
+| `429` | `rate_limited` | Mostrar retry/backoff |
+| `502` | `mcp_unreachable` | Mostrar indisponibilidade do MCP |
+| `504` | `mcp_timeout` | Mostrar timeout e permitir tentar novamente |
+| `5xx` do MCP | `mcp_server_error` | Mostrar falha segura sem detalhes sensíveis |
+
+O BFF não repassa tokens, headers ou payload sensível em erros retornados ao browser.
+
 ## Frontend Vercel → BFF Render
 
 Para frontend e BFF em origens diferentes, use cookies cross-site seguros:
