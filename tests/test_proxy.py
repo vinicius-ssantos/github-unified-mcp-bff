@@ -172,6 +172,12 @@ def test_call_tool_mcp_error(client):
     respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(500))
     r = client.post("/api/mcp/call", json={"name": "server_info", "arguments": {}})
     assert r.status_code == 500
+    assert r.json()["detail"] == "MCP server returned error"
+    assert r.json()["error"] == {
+        "code": "mcp_server_error",
+        "message": "MCP server returned error",
+        "details": {"status_code": 500},
+    }
 
 
 @respx.mock
@@ -179,6 +185,12 @@ def test_call_tool_mcp_timeout(client):
     respx.post(MCP_ENDPOINT).mock(side_effect=httpx.TimeoutException("timeout"))
     r = client.post("/api/mcp/call", json={"name": "server_info", "arguments": {}})
     assert r.status_code == 504
+    assert r.json()["detail"] == "MCP server timeout"
+    assert r.json()["error"] == {
+        "code": "mcp_timeout",
+        "message": "MCP server timeout",
+        "details": {"status_code": 504},
+    }
 
 
 @respx.mock
@@ -186,6 +198,12 @@ def test_call_tool_mcp_unreachable(client):
     respx.post(MCP_ENDPOINT).mock(side_effect=httpx.ConnectError("refused"))
     r = client.post("/api/mcp/call", json={"name": "server_info", "arguments": {}})
     assert r.status_code == 502
+    assert r.json()["detail"] == "MCP server unreachable"
+    assert r.json()["error"] == {
+        "code": "mcp_unreachable",
+        "message": "MCP server unreachable",
+        "details": {"status_code": 502},
+    }
 
 
 def test_call_tool_missing_name(client):
@@ -197,12 +215,16 @@ def test_call_tool_write_blocked_for_viewer(client):
     r = client.post("/api/mcp/call", json={"name": "pr_create", "arguments": {}})
     assert r.status_code == 403
     assert "requires 'operator'" in r.json()["detail"]
+    assert r.json()["error"]["code"] == "forbidden"
+    assert r.json()["error"]["details"] == {"status_code": 403}
 
 
 def test_call_tool_unknown_blocked(client):
     r = client.post("/api/mcp/call", json={"name": "new_runtime_tool_not_in_bff_policy", "arguments": {}})
     assert r.status_code == 403
     assert "not known to BFF policy" in r.json()["detail"]
+    assert r.json()["error"]["code"] == "forbidden"
+    assert r.json()["error"]["details"] == {"status_code": 403}
 
 
 @respx.mock
