@@ -65,8 +65,8 @@ cp .env.example .env
 ## Desenvolvimento
 
 ```bash
-# Instalar dependências
-pip install -e ".[dev]"
+# Instalar dependências com lockfile de desenvolvimento
+pip install -e ".[dev]" --constraint requirements-dev.lock
 
 # Rodar servidor local
 python main.py
@@ -79,6 +79,32 @@ ruff check .
 ```
 
 O servidor sobe em `http://localhost:8000`.
+
+## Dependências reproduzíveis
+
+A estratégia de lockfile usa constraints do `pip`:
+
+- `requirements.lock` fixa dependências de produção;
+- `requirements-dev.lock` fixa dependências de produção, teste e lint;
+- CI instala `.[dev]` usando `--constraint requirements-dev.lock`;
+- Docker instala o pacote usando `--constraint requirements.lock`.
+
+Comandos recomendados:
+
+```bash
+# Instalação local de desenvolvimento
+pip install -e ".[dev]" --constraint requirements-dev.lock
+
+# Instalação de produção equivalente ao Dockerfile
+pip install . --constraint requirements.lock
+
+# Validação antes de abrir PR
+pytest -q
+ruff check .
+docker build -t github-unified-mcp-bff:test .
+```
+
+Para atualizar dependências, faça preferencialmente em PR separado: atualize as versões nos lockfiles, rode testes completos, rode lint e valide o Docker build. Pacotes críticos de segurança como `fastapi`, `httpx`, `python-jose[cryptography]`, `pydantic-settings` e `aiosqlite` devem permanecer fixados nos lockfiles.
 
 ## Stack local completo
 

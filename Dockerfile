@@ -2,10 +2,10 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY pyproject.toml requirements.lock ./
 COPY app/ ./app/
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . --constraint requirements.lock
 
 EXPOSE 8000
 
