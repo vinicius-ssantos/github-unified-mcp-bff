@@ -1,0 +1,18 @@
+# Locked development dependencies for github-unified-mcp-bff.
+#
+# Includes production, test and lint dependencies resolved from a known-good CI run.
+# Install development dependencies with:
+#   python -m pip install -e ".[dev]" --constraint requirements-dev.lock
+#
+# Keep this file in sync with requirements.lock when updating runtime deps.
+
+-r requirements.lock
+
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
+pygments==2.20.0
+pytest==9.0.3
+pytest-asyncio==1.3.0
+respx==0.23.1
+ruff==0.15.13
