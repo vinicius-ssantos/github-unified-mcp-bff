@@ -137,7 +137,11 @@ async def mcp_passthrough(request: Request, settings: Settings = Depends(get_set
 
     _check_csrf(request, user_info)
     _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
+    if not settings.allow_raw_mcp_passthrough:
+        raise HTTPException(status_code=403, detail="Raw MCP passthrough is disabled")
     if is_tool_call:
+        if not settings.allow_raw_mcp_tools_call:
+            raise HTTPException(status_code=403, detail="Raw MCP tool execution is disabled")
         _enforce_tool_policy(tool_name, role, settings)
 
     start = time.monotonic()

@@ -93,6 +93,44 @@ def test_mcp_raw_tools_call_low_risk_allowed(client):
     assert r.status_code == 200
 
 
+@respx.mock
+def test_mcp_raw_passthrough_can_be_disabled(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_raw_mcp_passthrough", False)
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}}))
+
+    r = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+
+    assert r.status_code == 403
+    assert "passthrough is disabled" in r.json()["detail"]
+
+
+@respx.mock
+def test_mcp_raw_tool_execution_can_be_disabled(client, monkeypatch):
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_raw_mcp_tools_call", False)
+    respx.post(MCP_ENDPOINT).mock(return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}}))
+
+    list_response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    tool_response = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "server_info", "arguments": {}},
+        },
+    )
+
+    assert list_response.status_code == 200
+    assert tool_response.status_code == 403
+    assert "tool execution is disabled" in tool_response.json()["detail"]
+
+
 def test_mcp_raw_tools_call_write_blocked_for_viewer(client):
     r = client.post(
         "/mcp",

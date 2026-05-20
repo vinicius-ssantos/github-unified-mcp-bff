@@ -16,6 +16,8 @@ def _prod_settings(**overrides):
         "audit_backend": "sqlite",
         "audit_sqlite_persistence": "persistent",
         "audit_db_path": "/var/data/audit.db",
+        "allow_raw_mcp_passthrough": False,
+        "allow_raw_mcp_tools_call": False,
     }
     base.update(overrides)
     return Settings(**base)
@@ -51,6 +53,8 @@ def test_production_accepts_safe_config():
         ("audit_db_path", ":memory:", "persistent storage"),
         ("audit_db_path", "/tmp/audit.db", "persistent storage"),
         ("audit_db_path", "relative/audit.db", "absolute persistent path"),
+        ("allow_raw_mcp_passthrough", True, "ALLOW_RAW_MCP_PASSTHROUGH"),
+        ("allow_raw_mcp_tools_call", True, "ALLOW_RAW_MCP_TOOLS_CALL"),
     ],
 )
 def test_production_rejects_unsafe_values(field, value, message):

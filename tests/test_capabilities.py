@@ -38,6 +38,8 @@ def test_capabilities_anonymous_payload_is_safe(client):
     assert data["user"] is None
     assert data["auth"]["cookie_session"] is True
     assert data["auth"]["csrf_required"] is False
+    assert data["mcp"]["raw_passthrough_enabled"] is True
+    assert data["mcp"]["raw_tool_execution_enabled"] is True
     assert data["mcp"]["structured_call_enabled"] is True
     assert data["features"]["audit_protected"] is True
     assert data["features"]["tool_policy"] is True
