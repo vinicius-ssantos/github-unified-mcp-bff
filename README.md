@@ -25,7 +25,7 @@ Browser (sem token)
 | `GET` | `/auth/callback` | Callback OAuth; cria cookies e redireciona para `FRONTEND_URL` |
 | `GET` | `/auth/me` | Retorna usuário/role autenticado |
 | `POST` | `/auth/logout` | Remove cookies de sessão/CSRF |
-| `GET` | `/api/audit` | Lista audit events; proteção por role ainda pendente |
+| `GET` | `/api/audit` | Lista audit events; exige sessão e role `operator` ou `admin` |
 
 ## Configuração
 
@@ -121,7 +121,8 @@ Exemplo de payload:
   },
   "mcp": {
     "auth_mode": "static_bearer",
-    "raw_passthrough_enabled": true,
+    "raw_passthrough_enabled": false,
+    "raw_tool_execution_enabled": false,
     "structured_call_enabled": true
   },
   "features": {
@@ -168,7 +169,9 @@ A mesma policy é aplicada em:
 - `POST /api/mcp/call`;
 - `POST /mcp` quando o payload JSON-RPC usa `method="tools/call"`.
 
-Métodos raw que não são `tools/call`, como `tools/list`, continuam compatíveis com passthrough.
+Em desenvolvimento, o passthrough raw pode continuar habilitado para compatibilidade/debug. Em produção, a configuração segura desabilita o endpoint raw e também a execução de tools pelo caminho raw; o frontend deve usar `POST /api/mcp/call`.
+
+Métodos raw que não são `tools/call`, como `tools/list`, continuam compatíveis com passthrough apenas quando a política raw estiver habilitada.
 
 ## Deploy (Render)
 
@@ -183,6 +186,8 @@ O `Dockerfile` está pronto. Configure as variáveis de ambiente no painel do Re
 - `JWT_SECRET` forte, diferente de `change-me-in-production`
 - `ALLOWED_ORIGINS` explícito, sem `*`
 - `BLOCK_UNKNOWN_TOOLS=true`
+- desabilite passthrough raw do MCP em produção
+- desabilite execução de tools pelo caminho raw em produção
 
 Em `BFF_ENV=production`, o BFF falha no startup se a configuração estiver insegura.
 
