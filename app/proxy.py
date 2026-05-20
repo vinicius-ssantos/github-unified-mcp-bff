@@ -4,6 +4,7 @@ import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.audit import log_call
@@ -78,6 +79,38 @@ def _enforce_tool_policy(tool_name: str, role: str, settings: Settings) -> None:
             status_code=403,
             detail=f"Role '{role}' cannot call '{tool_name}' — requires '{tool_min_role(tool_name)}'",
         )
+
+
+def _frontend_error_code(status_code: int, message: str) -> str:
+    normalized = message.lower()
+    if status_code == 401:
+        return "unauthorized"
+    if status_code == 403:
+        return "forbidden"
+    if status_code == 429:
+        return "rate_limited"
+    if status_code == 502:
+        return "mcp_unreachable"
+    if status_code == 504:
+        return "mcp_timeout"
+    if "mcp server returned error" in normalized:
+        return "mcp_server_error"
+    return "request_failed"
+
+
+def _frontend_error_response(exc: HTTPException) -> JSONResponse:
+    message = exc.detail if isinstance(exc.detail, str) else "Request failed"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": message,
+            "error": {
+                "code": _frontend_error_code(exc.status_code, message),
+                "message": message,
+                "details": {"status_code": exc.status_code},
+            },
+        },
+    )
 
 
 async def _forward(
@@ -167,10 +200,6 @@ async def call_tool(body: ToolCallRequest, request: Request, settings: Settings 
     role = user_role(username, settings, teams) if user_info else "viewer"
     ip = _client_ip(request)
 
-    _check_csrf(request, user_info)
-    _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
-    _enforce_tool_policy(body.name, role, settings)
-
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -180,11 +209,14 @@ async def call_tool(body: ToolCallRequest, request: Request, settings: Settings 
     start = time.monotonic()
     result_ok = True
     try:
+        _check_csrf(request, user_info)
+        _check_user_rate_limit(user_info["sub"] if user_info else ip, settings)
+        _enforce_tool_policy(body.name, role, settings)
         result = await _forward(settings, payload=payload)
         return result
-    except HTTPException:
+    except HTTPException as exc:
         result_ok = False
-        raise
+        return _frontend_error_response(exc)
     finally:
         await log_call(
             settings.audit_db_path, username, body.name, body.arguments,
