@@ -229,6 +229,27 @@ Em desenvolvimento, o passthrough raw pode continuar habilitado para compatibili
 
 Métodos raw que não são `tools/call`, como `tools/list`, continuam compatíveis com passthrough apenas quando a política raw estiver habilitada.
 
+## Operações controladas
+
+O primeiro slice do fluxo de operações controladas é preview-only. Ele permite que o frontend peça ao BFF uma prévia segura antes de qualquer execução de tool sensível.
+
+Endpoints disponíveis:
+
+- `POST /api/operations/preview` cria uma operação pendente com status `previewed`;
+- `GET /api/operations/{operation_id}` consulta uma operação pendente existente.
+
+O preview exige sessão autenticada e aplica a mesma policy local de tools:
+
+- medium-risk exige `operator`;
+- high-risk exige `admin`;
+- tools desconhecidas continuam bloqueadas por padrão.
+
+A resposta inclui `operation_id`, `tool_name`, `arguments_hash`, `arguments_redacted`, `requested_by`, `role`, `risk_level`, `min_role`, `status`, `created_at` e `expires_at`. Argumentos sensíveis com nomes contendo `token`, `secret`, `password`, `authorization` ou `code` são redigidos no preview.
+
+Este slice ainda não executa operações. `POST /api/operations/preview` não chama o MCP core, não escreve no GitHub e não confirma ações destrutivas. A confirmação, execução server-side e audit completo do ciclo de vida devem entrar em slices posteriores da #7.
+
+`GET /api/capabilities` expõe `features.operation_preview=true` e `features.operation_execution=false` para o frontend diferenciar preview disponível de execução ainda indisponível.
+
 ## Deploy (Render)
 
 O `Dockerfile` está pronto. Configure as variáveis de ambiente no painel do Render:
