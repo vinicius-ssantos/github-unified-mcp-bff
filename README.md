@@ -20,6 +20,7 @@ Browser (sem token)
 | `GET` | `/healthz` | Proxeia o `/healthz` do MCP server |
 | `POST` | `/mcp` | Passthrough raw JSON-RPC; aplica policy quando `method=tools/call` |
 | `POST` | `/api/mcp/call` | Chamada estruturada `{ name, arguments }` → JSON-RPC MCP |
+| `POST` | `/api/operations/preview` | Cria preview controlado para tool sensível sem executar no MCP |
 | `GET` | `/api/capabilities` | Contrato estável da UI: sessão, role, auth mode, features e limites |
 | `GET` | `/auth/login` | Inicia login GitHub OAuth |
 | `GET` | `/auth/callback` | Callback OAuth; cria cookies e redireciona para `FRONTEND_URL` |
@@ -135,6 +136,28 @@ npm run dev
 ```
 
 O frontend em `http://localhost:5173` deve apontar para o BFF, não diretamente para o MCP core, em modo produção.
+
+## Operações controladas
+
+A primeira versão do fluxo controlado expõe apenas `POST /api/operations/preview`. O endpoint exige sessão autenticada, classifica risco via policy local, valida role mínima, calcula `arguments_hash`, redige campos sensíveis em `arguments_redacted` e cria uma operação pendente com TTL em memória.
+
+Este slice não executa tools no MCP. Confirmação, execução e audit do ciclo completo entram em PRs posteriores.
+
+Exemplo:
+
+```json
+{
+  "tool_name": "issue_create",
+  "arguments": {
+    "title": "Bug report",
+    "body": "Steps...",
+    "access_token": "secret"
+  },
+  "idempotency_key": "issue-preview-1"
+}
+```
+
+Resposta inclui `operation_id`, `risk_level`, `role`, `status`, `arguments_hash`, `arguments_redacted`, `created_at` e `expires_at`. Tools medium-risk exigem role `operator`; tools high-risk exigem role `admin`; tools desconhecidas continuam bloqueadas por padrão.
 
 ## Contrato `/api/capabilities`
 
