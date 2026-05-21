@@ -167,6 +167,51 @@ Exemplo de payload:
 
 O payload não deve expor tokens, secrets, cookies ou headers sensíveis.
 
+## Operações controladas — preview inicial
+
+O BFF expõe o primeiro slice do fluxo de operações controladas com preview server-side, sem executar a tool no MCP:
+
+```http
+POST /api/operations/preview
+```
+
+Payload:
+
+```json
+{
+  "tool_name": "issue_create",
+  "arguments": {
+    "title": "Título seguro",
+    "body": "Descrição"
+  }
+}
+```
+
+Resposta segura:
+
+```json
+{
+  "operation_id": "op_...",
+  "tool_name": "issue_create",
+  "arguments_hash": "...",
+  "arguments_redacted": {
+    "title": "Título seguro",
+    "body": "Descrição"
+  },
+  "requested_by": "vinicius-ssantos",
+  "role": "operator",
+  "risk_level": "medium",
+  "min_role": "operator",
+  "status": "previewed",
+  "created_at": "2026-05-20T00:00:00+00:00",
+  "expires_at": "2026-05-20T00:05:00+00:00"
+}
+```
+
+O preview exige sessão autenticada, usa a mesma policy de tools/RBAC do BFF, redige chaves sensíveis nos argumentos e expira operações pendentes em memória. A primeira versão é intencionalmente preview-only: confirmação, execução MCP e audit de ciclo completo entram em slices posteriores da #7.
+
+Também é possível consultar o preview pendente por `GET /api/operations/{operation_id}`. Apenas o usuário que criou a operação ou um admin pode ler o preview.
+
 ## Contrato de erro para o frontend
 
 `POST /api/mcp/call` preserva o campo legado `detail` e também retorna um envelope estável em `error` quando uma chamada falha:
