@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -11,12 +12,14 @@ from pydantic import BaseModel, Field
 
 from app.auth import get_current_user
 from app.config import Settings, get_settings
+from app.rate_limit import check_rate_limit
 from app.rbac import is_allowed, user_role
 from app.tool_policy import tool_min_role, tool_policy
 
 router = APIRouter(prefix="/api/operations")
 
 _OPERATION_TTL_SECONDS = 300
+_MAX_PENDING_OPERATIONS = 500
 _SENSITIVE_KEYS = {"authorization", "code", "password", "secret", "token"}
 _OPERATIONS: dict[str, "ControlledOperation"] = {}
 
@@ -68,6 +71,30 @@ def _cleanup_expired(now: float | None = None) -> None:
         _OPERATIONS.pop(operation_id, None)
 
 
+def _evict_oldest_if_needed() -> None:
+    while len(_OPERATIONS) >= _MAX_PENDING_OPERATIONS:
+        oldest_id = min(_OPERATIONS, key=lambda operation_id: _parse_ts(_OPERATIONS[operation_id].created_at))
+        _OPERATIONS.pop(oldest_id, None)
+
+
+def _check_csrf(request: Request, user_info: dict[str, Any]) -> None:
+    csrf_in_session = user_info.get("csrf")
+    if not csrf_in_session:
+        return
+    csrf_header = request.headers.get("X-CSRF-Token", "")
+    if not hmac.compare_digest(csrf_header, csrf_in_session):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+
+
+def _check_user_rate_limit(username: str, settings: Settings) -> None:
+    if not check_rate_limit(
+        f"operations-preview:{username}",
+        max_requests=settings.rate_limit_per_user_max,
+        window=settings.rate_limit_per_user_window,
+    ):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded — too many requests")
+
+
 def _parse_ts(value: str) -> float:
     return datetime.fromisoformat(value).timestamp()
 
@@ -87,6 +114,8 @@ async def preview_operation(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     username = user_info["sub"]
+    _check_csrf(request, user_info)
+    _check_user_rate_limit(username, settings)
     role = user_role(username, settings, user_info.get("teams", []))
     policy = tool_policy(body.tool_name)
     min_role = tool_min_role(body.tool_name)
@@ -103,6 +132,7 @@ async def preview_operation(
         )
 
     _cleanup_expired()
+    _evict_oldest_if_needed()
     now = time.time()
     created_at = datetime.fromtimestamp(now, timezone.utc).isoformat()
     expires_at = datetime.fromtimestamp(now + _OPERATION_TTL_SECONDS, timezone.utc).isoformat()
