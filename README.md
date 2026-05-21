@@ -167,6 +167,51 @@ Exemplo de payload:
 
 O payload não deve expor tokens, secrets, cookies ou headers sensíveis.
 
+## Operações controladas — preview inicial
+
+O BFF expõe o primeiro slice do fluxo de operações controladas com preview server-side, sem executar a tool no MCP:
+
+```http
+POST /api/operations/preview
+```
+
+Payload:
+
+```json
+{
+  "tool_name": "issue_create",
+  "arguments": {
+    "title": "Título seguro",
+    "body": "Descrição"
+  }
+}
+```
+
+Resposta segura:
+
+```json
+{
+  "operation_id": "op_...",
+  "tool_name": "issue_create",
+  "arguments_hash": "...",
+  "arguments_redacted": {
+    "title": "Título seguro",
+    "body": "Descrição"
+  },
+  "requested_by": "vinicius-ssantos",
+  "role": "operator",
+  "risk_level": "medium",
+  "min_role": "operator",
+  "status": "previewed",
+  "created_at": "2026-05-20T00:00:00+00:00",
+  "expires_at": "2026-05-20T00:05:00+00:00"
+}
+```
+
+O preview exige sessão autenticada, usa a mesma policy de tools/RBAC do BFF, redige chaves sensíveis nos argumentos e expira operações pendentes em memória. A primeira versão é intencionalmente preview-only: confirmação, execução MCP e audit de ciclo completo entram em slices posteriores da #7.
+
+Também é possível consultar o preview pendente por `GET /api/operations/{operation_id}`. Apenas o usuário que criou a operação ou um admin pode ler o preview.
+
 ## Contrato de erro para o frontend
 
 `POST /api/mcp/call` preserva o campo legado `detail` e também retorna um envelope estável em `error` quando uma chamada falha:
@@ -228,6 +273,27 @@ A mesma policy é aplicada em:
 Em desenvolvimento, o passthrough raw pode continuar habilitado para compatibilidade/debug. Em produção, a configuração segura desabilita o endpoint raw e também a execução de tools pelo caminho raw; o frontend deve usar `POST /api/mcp/call`.
 
 Métodos raw que não são `tools/call`, como `tools/list`, continuam compatíveis com passthrough apenas quando a política raw estiver habilitada.
+
+## Operações controladas
+
+O primeiro slice do fluxo de operações controladas é preview-only. Ele permite que o frontend peça ao BFF uma prévia segura antes de qualquer execução de tool sensível.
+
+Endpoints disponíveis:
+
+- `POST /api/operations/preview` cria uma operação pendente com status `previewed`;
+- `GET /api/operations/{operation_id}` consulta uma operação pendente existente.
+
+O preview exige sessão autenticada e aplica a mesma policy local de tools:
+
+- medium-risk exige `operator`;
+- high-risk exige `admin`;
+- tools desconhecidas continuam bloqueadas por padrão.
+
+A resposta inclui `operation_id`, `tool_name`, `arguments_hash`, `arguments_redacted`, `requested_by`, `role`, `risk_level`, `min_role`, `status`, `created_at` e `expires_at`. Argumentos sensíveis com nomes contendo `token`, `secret`, `password`, `authorization` ou `code` são redigidos no preview.
+
+Este slice ainda não executa operações. `POST /api/operations/preview` não chama o MCP core, não escreve no GitHub e não confirma ações destrutivas. A confirmação, execução server-side e audit completo do ciclo de vida devem entrar em slices posteriores da #7.
+
+`GET /api/capabilities` expõe `features.operation_preview=true` e `features.operation_execution=false` para o frontend diferenciar preview disponível de execução ainda indisponível.
 
 ## Deploy (Render)
 

@@ -42,6 +42,9 @@ def test_capabilities_anonymous_payload_is_safe(client):
     assert data["mcp"]["raw_tool_execution_enabled"] is True
     assert data["mcp"]["structured_call_enabled"] is True
     assert data["features"]["audit_protected"] is True
+    assert data["features"]["controlled_operations"] is True
+    assert data["features"]["operation_preview"] is True
+    assert data["features"]["operation_execution"] is False
     assert data["features"]["tool_policy"] is True
     assert data["features"]["unknown_tools_blocked"] is True
 
