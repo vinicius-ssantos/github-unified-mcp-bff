@@ -107,22 +107,6 @@ docker build -t github-unified-mcp-bff:test .
 
 Para atualizar dependências, faça preferencialmente em PR separado: atualize as versões nos lockfiles, rode testes completos, rode lint e valide o Docker build. Pacotes críticos de segurança como `fastapi`, `httpx`, `python-jose[cryptography]`, `pydantic-settings` e `aiosqlite` devem permanecer fixados nos lockfiles.
 
-## Operações controladas
-
-O BFF expõe o primeiro slice do fluxo de operações controladas em `POST /api/operations/preview`.
-
-Nesta etapa, o endpoint apenas cria um preview server-side e não executa a tool no MCP. O preview:
-
-- exige sessão autenticada;
-- aplica RBAC e o catálogo local de risco de tools;
-- bloqueia tools desconhecidas pela policy do BFF;
-- retorna `operation_id`, `tool_name`, `arguments_hash`, `arguments_redacted`, `requested_by`, `role`, `risk_level`, `status`, `created_at` e `expires_at`;
-- redige campos sensíveis como tokens, secrets, passwords e headers de autorização;
-- aceita `idempotency_key` para evitar duplicação de preview em reenvios do frontend;
-- expira operações pendentes em memória após 10 minutos.
-
-Este slice é intencionalmente preview-only. Confirmação, execução server-side e audit completo do ciclo de vida serão adicionados nos próximos incrementos da issue #7.
-
 ## Stack local completo
 
 ```bash
