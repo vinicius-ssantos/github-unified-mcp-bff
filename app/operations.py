@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/operations")
 
 _OPERATION_TTL_SECONDS = 300
 _MAX_PENDING_OPERATIONS = 500
+_HIGH_RISK_CONFIRMATION = "CONFIRM_HIGH_RISK_OPERATION"
 _SENSITIVE_KEYS = {"authorization", "code", "password", "secret", "token"}
 _OPERATIONS: dict[str, "ControlledOperation"] = {}
 
@@ -27,6 +28,10 @@ _OPERATIONS: dict[str, "ControlledOperation"] = {}
 class OperationPreviewRequest(BaseModel):
     tool_name: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class OperationConfirmRequest(BaseModel):
+    confirmation: str = ""
 
 
 @dataclass
@@ -42,6 +47,7 @@ class ControlledOperation:
     status: str
     created_at: str
     expires_at: str
+    confirmed_at: str | None = None
 
 
 def _hash_arguments(arguments: dict[str, Any]) -> str:
@@ -103,16 +109,35 @@ def _operation_response(operation: ControlledOperation) -> dict[str, Any]:
     return asdict(operation)
 
 
+def _current_user_or_401(request: Request, settings: Settings) -> dict[str, Any]:
+    user_info = get_current_user(request, settings)
+    if not user_info:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user_info
+
+
+def _assert_operation_access(operation: ControlledOperation, user_info: dict[str, Any], settings: Settings) -> None:
+    username = user_info["sub"]
+    role = user_role(username, settings, user_info.get("teams", []))
+    if operation.requested_by != username and role != "admin":
+        raise HTTPException(status_code=403, detail="Operation belongs to a different user")
+
+
+def _get_operation_or_404(operation_id: str) -> ControlledOperation:
+    _cleanup_expired()
+    operation = _OPERATIONS.get(operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail="Operation not found or expired")
+    return operation
+
+
 @router.post("/preview")
 async def preview_operation(
     body: OperationPreviewRequest,
     request: Request,
     settings: Settings = Depends(get_settings),
 ):
-    user_info = get_current_user(request, settings)
-    if not user_info:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
+    user_info = _current_user_or_401(request, settings)
     username = user_info["sub"]
     _check_csrf(request, user_info)
     _check_user_rate_limit(username, settings)
@@ -159,18 +184,29 @@ async def get_operation_preview(
     request: Request,
     settings: Settings = Depends(get_settings),
 ):
-    user_info = get_current_user(request, settings)
-    if not user_info:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_info = _current_user_or_401(request, settings)
+    operation = _get_operation_or_404(operation_id)
+    _assert_operation_access(operation, user_info, settings)
+    return _operation_response(operation)
 
-    _cleanup_expired()
-    operation = _OPERATIONS.get(operation_id)
-    if not operation:
-        raise HTTPException(status_code=404, detail="Operation not found or expired")
 
-    username = user_info["sub"]
-    role = user_role(username, settings, user_info.get("teams", []))
-    if operation.requested_by != username and role != "admin":
-        raise HTTPException(status_code=403, detail="Operation belongs to a different user")
+@router.post("/{operation_id}/confirm")
+async def confirm_operation(
+    operation_id: str,
+    body: OperationConfirmRequest,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    user_info = _current_user_or_401(request, settings)
+    _check_csrf(request, user_info)
+    operation = _get_operation_or_404(operation_id)
+    _assert_operation_access(operation, user_info, settings)
 
+    if operation.status != "previewed":
+        raise HTTPException(status_code=409, detail=f"Operation cannot be confirmed from status '{operation.status}'")
+    if operation.risk_level == "high" and body.confirmation != _HIGH_RISK_CONFIRMATION:
+        raise HTTPException(status_code=403, detail="High-risk operation requires explicit confirmation")
+
+    operation.status = "confirmed"
+    operation.confirmed_at = datetime.now(timezone.utc).isoformat()
     return _operation_response(operation)

@@ -5,6 +5,7 @@ from jose import jwt
 
 CSRF_TOKEN = "csrf-token"
 CSRF_HEADERS = {"X-CSRF-Token": CSRF_TOKEN}
+HIGH_RISK_CONFIRMATION = "CONFIRM_HIGH_RISK_OPERATION"
 
 
 def _session_token(settings, sub="testuser", name="Test User", teams=None):
@@ -28,6 +29,10 @@ def _set_session(client, settings, sub="testuser", teams=None):
 
 def _post_preview(client, payload):
     return client.post("/api/operations/preview", json=payload, headers=CSRF_HEADERS)
+
+
+def _post_confirm(client, operation_id, payload=None, headers=CSRF_HEADERS):
+    return client.post(f"/api/operations/{operation_id}/confirm", json=payload or {}, headers=headers)
 
 
 def test_operation_preview_requires_authentication():
@@ -97,6 +102,7 @@ def test_operator_can_preview_medium_risk_operation(monkeypatch):
     assert data["risk_level"] == "medium"
     assert data["min_role"] == "operator"
     assert data["status"] == "previewed"
+    assert data["confirmed_at"] is None
     assert data["arguments_redacted"] == {"title": "Test issue", "body": "safe"}
     assert len(data["arguments_hash"]) == 16
 
@@ -199,3 +205,133 @@ def test_operation_preview_cannot_be_loaded_by_different_non_admin(monkeypatch):
 
     assert loaded.status_code == 403
     assert "different user" in loaded.json()["detail"]
+
+
+def test_operation_confirm_requires_authentication():
+    from app.main import app
+
+    with TestClient(app) as client:
+        client.cookies.clear()
+        r = client.post("/api/operations/op_missing/confirm", json={})
+
+    assert r.status_code == 401
+
+
+def test_operation_confirm_requires_csrf(monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-confirm-csrf")
+
+    with TestClient(app) as client:
+        _set_session(client, settings, sub="operator-confirm-csrf")
+        created = _post_preview(client, {"tool_name": "issue_create", "arguments": {}})
+        operation_id = created.json()["operation_id"]
+        r = client.post(f"/api/operations/{operation_id}/confirm", json={})
+
+    assert r.status_code == 403
+    assert r.json()["detail"] == "CSRF validation failed"
+
+
+def test_operator_can_confirm_own_medium_risk_operation(monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-confirm-user")
+
+    with TestClient(app) as client:
+        _set_session(client, settings, sub="operator-confirm-user")
+        created = _post_preview(client, {"tool_name": "issue_create", "arguments": {}})
+        operation_id = created.json()["operation_id"]
+        confirmed = _post_confirm(client, operation_id)
+        loaded = client.get(f"/api/operations/{operation_id}")
+
+    assert confirmed.status_code == 200
+    data = confirmed.json()
+    assert data["operation_id"] == operation_id
+    assert data["status"] == "confirmed"
+    assert data["confirmed_at"] is not None
+    assert loaded.json()["status"] == "confirmed"
+
+
+def test_confirming_operation_twice_returns_conflict(monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "operator-repeat-confirm")
+
+    with TestClient(app) as client:
+        _set_session(client, settings, sub="operator-repeat-confirm")
+        created = _post_preview(client, {"tool_name": "issue_create", "arguments": {}})
+        operation_id = created.json()["operation_id"]
+        first = _post_confirm(client, operation_id)
+        second = _post_confirm(client, operation_id)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert "cannot be confirmed" in second.json()["detail"]
+
+
+def test_different_non_admin_cannot_confirm_operation(monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "confirm-owner,confirm-other")
+    monkeypatch.setattr(settings, "rbac_admin_users", "")
+
+    with TestClient(app) as client:
+        _set_session(client, settings, sub="confirm-owner")
+        created = _post_preview(client, {"tool_name": "issue_create", "arguments": {}})
+        operation_id = created.json()["operation_id"]
+
+        client.cookies.clear()
+        _set_session(client, settings, sub="confirm-other")
+        confirmed = _post_confirm(client, operation_id)
+
+    assert confirmed.status_code == 403
+    assert "different user" in confirmed.json()["detail"]
+
+
+def test_admin_can_confirm_operation_for_different_user(monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_operator_users", "confirm-owner-admin")
+    monkeypatch.setattr(settings, "rbac_admin_users", "confirm-admin")
+
+    with TestClient(app) as client:
+        _set_session(client, settings, sub="confirm-owner-admin")
+        created = _post_preview(client, {"tool_name": "issue_create", "arguments": {}})
+        operation_id = created.json()["operation_id"]
+
+        client.cookies.clear()
+        _set_session(client, settings, sub="confirm-admin")
+        confirmed = _post_confirm(client, operation_id)
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"
+
+
+def test_high_risk_confirmation_requires_explicit_phrase(monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "rbac_admin_users", "admin-high-confirm")
+
+    with TestClient(app) as client:
+        _set_session(client, settings, sub="admin-high-confirm")
+        created = _post_preview(client, {"tool_name": "pr_merge", "arguments": {"pull_number": 25}})
+        operation_id = created.json()["operation_id"]
+        denied = _post_confirm(client, operation_id)
+        confirmed = _post_confirm(client, operation_id, {"confirmation": HIGH_RISK_CONFIRMATION})
+
+    assert denied.status_code == 403
+    assert "explicit confirmation" in denied.json()["detail"]
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"

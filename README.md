@@ -167,9 +167,9 @@ Exemplo de payload:
 
 O payload não deve expor tokens, secrets, cookies ou headers sensíveis.
 
-## Operações controladas — preview inicial
+## Operações controladas — preview e confirmação inicial
 
-O BFF expõe o primeiro slice do fluxo de operações controladas com preview server-side, sem executar a tool no MCP:
+O BFF expõe os primeiros slices do fluxo de operações controladas com preview e confirmação server-side, sem executar a tool no MCP:
 
 ```http
 POST /api/operations/preview
@@ -208,9 +208,33 @@ Resposta segura:
 }
 ```
 
-O preview exige sessão autenticada, usa a mesma policy de tools/RBAC do BFF, redige chaves sensíveis nos argumentos e expira operações pendentes em memória. A primeira versão é intencionalmente preview-only: confirmação, execução MCP e audit de ciclo completo entram em slices posteriores da #7.
+O preview exige sessão autenticada, CSRF em `X-CSRF-Token`, rate limit por usuário, a mesma policy de tools/RBAC do BFF, redige chaves sensíveis nos argumentos e expira operações pendentes em memória. Também é possível consultar o preview pendente por `GET /api/operations/{operation_id}`. Apenas o usuário que criou a operação ou um admin pode ler o preview.
 
-Também é possível consultar o preview pendente por `GET /api/operations/{operation_id}`. Apenas o usuário que criou a operação ou um admin pode ler o preview.
+Depois do preview, o frontend pode confirmar a operação pendente:
+
+```http
+POST /api/operations/{operation_id}/confirm
+```
+
+Para operações medium-risk, o payload pode ser vazio:
+
+```json
+{}
+```
+
+Para operações high-risk, o payload deve incluir confirmação explícita:
+
+```json
+{
+  "confirmation": "CONFIRM_HIGH_RISK_OPERATION"
+}
+```
+
+A confirmação exige sessão, CSRF e acesso à operação pendente. O usuário que criou a operação pode confirmar sua própria operação; um admin também pode confirmar operações de outros usuários. Confirmações duplicadas retornam conflito porque a operação sai de `previewed` para `confirmed`.
+
+Este slice ainda não executa tools no MCP e não escreve no GitHub. A execução server-side, idempotência de execução e audit de ciclo completo entram em slices posteriores da #7.
+
+`GET /api/capabilities` expõe `features.operation_preview=true`, `features.operation_confirmation=true` e `features.operation_execution=false` para o frontend diferenciar cada etapa disponível.
 
 ## Contrato de erro para o frontend
 
