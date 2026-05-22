@@ -44,6 +44,7 @@ def test_capabilities_anonymous_payload_is_safe(client):
     assert data["features"]["audit_protected"] is True
     assert data["features"]["controlled_operations"] is True
     assert data["features"]["operation_preview"] is True
+    assert data["features"]["operation_confirmation"] is True
     assert data["features"]["operation_execution"] is False
     assert data["features"]["tool_policy"] is True
     assert data["features"]["unknown_tools_blocked"] is True
